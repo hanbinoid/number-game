@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { serve } from "hono/bun";
 
 const app = new Hono();
 
@@ -262,4 +261,4 @@ const html = `<!DOCTYPE html>
 app.get("/", (c) => c.html(html));
 app.get("/health", (c) => c.json({ status: "ok" }));
 
-export default serve(app);
+export default app;
