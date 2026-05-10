@@ -101,7 +101,7 @@ const html = `<!DOCTYPE html>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #000; color: #fff; overflow: hidden; }
-    #video-bg { position: fixed; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: -1; opacity: 0.3; }
+    #video-bg { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; opacity: 0.3; border: none; pointer-events: none; }
     .container { position: relative; z-index: 1; width: 100%; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; background: rgba(0, 0, 0, 0.6); }
     .login-screen { text-align: center; background: rgba(0, 0, 0, 0.8); padding: 40px; border-radius: 10px; border: 2px solid #00FF00; }
     .login-screen h1 { color: #00FF00; margin-bottom: 20px; font-size: 2.5em; }
@@ -129,13 +129,11 @@ const html = `<!DOCTYPE html>
     .history-screen.active { display: block; }
     .history-day { background: rgba(0, 0, 0, 0.8); padding: 20px; margin-bottom: 20px; border-radius: 10px; border: 2px solid #00FF00; }
     .history-day h3 { color: #00FF00; margin-bottom: 15px; }
-    .mute-btn { position: fixed; top: 20px; right: 20px; padding: 10px 15px; background: #FF00FF; color: #fff; border: none; border-radius: 5px; cursor: pointer; z-index: 100; font-weight: bold; }
-    .mute-btn:hover { background: #00FF00; color: #000; }
+
   </style>
 </head>
 <body>
-  <video id="video-bg" autoplay muted loop playsinline></video>
-  <button class="mute-btn" id="mute-btn">🔊 Mute</button>
+  <iframe id="video-bg" src="https://www.youtube.com/embed/2qKUHCu10q4?autoplay=1&mute=1&loop=1&playlist=2qKUHCu10q4&controls=0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
   <div class="container">
     <div class="login-screen" id="login-screen">
       <h1>🎮 Number Game</h1>
@@ -161,15 +159,6 @@ const html = `<!DOCTYPE html>
   </div>
   <script>
     let playerId = null;
-    const videoUrl = "https://www.youtube.com/shorts/2qKUHCu10q4";
-    document.getElementById('video-bg').src = videoUrl;
-    const videoEl = document.getElementById('video-bg');
-    let isMuted = true;
-    document.getElementById('mute-btn').addEventListener('click', () => {
-      isMuted = !isMuted;
-      videoEl.muted = isMuted;
-      document.getElementById('mute-btn').textContent = isMuted ? '🔊 Mute' : '🔇 Unmute';
-    });
     async function login() {
       const name = document.getElementById('player-name').value.trim();
       if (!name) return;
