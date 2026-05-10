@@ -240,10 +240,10 @@ function updateUI(data) {
       if (Object.keys(history).length === 0) {
         historyScreen.innerHTML = '<button class="nav-btn" onclick="location.reload()" style="margin-bottom: 20px;">Back</button><div style="text-align: center; color: #FF00FF; font-size: 1.2em;">No history yet</div>';
       } else {
-        historyScreen.innerHTML = '<button class="nav-btn" onclick="location.reload()" style="margin-bottom: 20px;">Back</button>' + Object.entries(history).reverse().map(([day, players]) => 
-          \`<div class="history-day"><h3>📅 \${day}</h3>\${Object.entries(players).sort((a, b) => b[1].count - a[1].count).map(([id, player], idx) => 
-            \`<div class="ranking-item"><span class="ranking-position">#\${idx + 1}</span><span>\${player.name}</span><span>\${player.count}</span></div>\`
-          ).join('')}</div>\`
+        historyScreen.innerHTML = '<button class="nav-btn" onclick="location.reload()" style="margin-bottom: 20px;">Back</button>' + Object.entries(history).reverse().map(([day, players]) =>
+          '<div class="history-day"><h3>📅 ' + day + '</h3>' + Object.entries(players).sort((a, b) => b[1].count - a[1].count).map(([id, player], idx) =>
+            '<div class="ranking-item"><span class="ranking-position">#' + (idx + 1) + '</span><span>' + player.name + '</span><span>' + player.count + '</span></div>'
+          ).join('') + '</div>'
         ).join('');
       }
     }
