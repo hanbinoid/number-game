@@ -202,7 +202,7 @@ const html = `<!DOCTYPE html>
       const data = await res.json();
       updateUI(data);
     }
-  function updateUI(data) {
+function updateUI(data) {
   document.getElementById('counter').textContent = data.totalCount;
   const player = data.players?.find(p => p.id === playerId);
   if (player) {
