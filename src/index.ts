@@ -202,30 +202,30 @@ const html = `<!DOCTYPE html>
       const data = await res.json();
       updateUI(data);
     }
-    function updateUI(data) {
-      document.getElementById('counter').textContent = data.totalCount;
-      const player = data.players.find(p => p.id === playerId);
-      if (player) {
-        document.getElementById('player-count').textContent = \`Your count: \${player.count}\`;
-      }
-      const btn = document.getElementById('increment-btn');
-      btn.disabled = !data.gameActive;
-      if (!data.gameActive) {
-        document.getElementById('game-screen').classList.remove('active');
-        document.getElementById('game-closed').style.display = 'block';
-        const finalRankings = document.getElementById('final-rankings');
-        finalRankings.innerHTML = '<h2 style="color: #00FF00; margin-bottom: 15px;">Leaderboard</h2>' + data.rankings.map((p, i) => 
-          \`<div class="ranking-item"><span class="ranking-position">#\${i + 1}</span><span>\${p.name}</span><span>\${p.count}</span></div>\`
-        ).join('');
-      } else {
-        const rankingsEl = document.getElementById('rankings');
-        if (rankingsEl.style.display !== 'none') {
-          rankingsEl.innerHTML = '<h2>Live Rankings</h2>' + data.rankings.map((p, i) => 
-            \`<div class="ranking-item"><span class="ranking-position">#\${i + 1}</span><span>\${p.name}</span><span>\${p.count}</span></div>\`
-          ).join('');
-        }
-      }
+  function updateUI(data) {
+  document.getElementById('counter').textContent = data.totalCount;
+  const player = data.players?.find(p => p.id === playerId);
+  if (player) {
+    document.getElementById('player-count').textContent = `Your count: ${player.count}`;
+  }
+  const btn = document.getElementById('increment-btn');
+  btn.disabled = !data.gameActive;
+  if (!data.gameActive) {
+    document.getElementById('game-screen').classList.remove('active');
+    document.getElementById('game-closed').style.display = 'block';
+    const finalRankings = document.getElementById('final-rankings');
+    finalRankings.innerHTML = '<h2 style="color: #00FF00; margin-bottom: 15px;">Leaderboard</h2>' + (data.rankings || []).map((p, i) => 
+      `<div class="ranking-item"><span class="ranking-position">#${i + 1}</span><span>${p.name}</span><span>${p.count}</span></div>`
+    ).join('');
+  } else {
+    const rankingsEl = document.getElementById('rankings');
+    if (rankingsEl.style.display !== 'none') {
+      rankingsEl.innerHTML = '<h2>Live Rankings</h2>' + (data.rankings || []).map((p, i) => 
+        `<div class="ranking-item"><span class="ranking-position">#${i + 1}</span><span>${p.name}</span><span>${p.count}</span></div>`
+      ).join('');
     }
+  }
+}
     function toggleRankings() {
       const rankingsEl = document.getElementById('rankings');
       rankingsEl.style.display = rankingsEl.style.display === 'none' ? 'block' : 'none';
