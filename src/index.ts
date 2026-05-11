@@ -167,9 +167,11 @@ const html = `<!DOCTYPE html>
 
     const audioTracks = [
       null,
-      '/public/audio/track1.mp3',
-      '/public/audio/track2.mp3',
-      '/public/audio/track3.mp3',
+      '/public/audio/track001.mp3',
+      '/public/audio/track002.mp3',
+      '/public/audio/track003.mp3',
+      '/public/audio/track004.mp3',
+      '/public/audio/track005.mp3',
     ];
     const audioLabels = ['🔇', '🎵', '🎶', '🎸'];
     let currentTrackIndex = 0;
