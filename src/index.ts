@@ -99,7 +99,7 @@ const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
   <title>Number Game</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -137,6 +137,7 @@ const html = `<!DOCTYPE html>
   </style>
 </head>
 <body>
+    touch-action: manipulation;
   <img id="bg-gif" src="/public/bg.gif" alt="background" />
   <audio id="audio-player" loop></audio>
   <div class="container">
