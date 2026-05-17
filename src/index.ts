@@ -151,9 +151,9 @@ const html = `<!DOCTYPE html>
       <div class="button-group">
         <button class="increment-btn" id="increment-btn" onclick="increment()">+1</button>
         <button class="audio-btn" id="audio-btn" onclick="cycleAudio()" title="Change music">🎵</button>
-        <button class="nav-btn" onclick="showHistory()">History</button>
       </div>
       <div class="rankings" id="rankings"></div>
+      <div class="button group"><button class="nav-btn" onclick="showHistory()">History</button></div>
     </div>
     <div class="game-closed" id="game-closed" style="display: none;">
       <h2>🏆 Today's Winners</h2>
