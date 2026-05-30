@@ -135,7 +135,8 @@ async function sendPushNotification(
       },
       body: payload,
     });
-    if (res.status === 410) return false; // subscription expired
+    console.log(`Push response: ${res.status} ${res.statusText}`);
+    if (res.status === 410) return false;
     return true;
   } catch {
     return false;
