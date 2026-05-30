@@ -1,28 +1,57 @@
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
+import { readFileSync, writeFileSync, existsSync } from "fs";
 
 const app = new Hono();
 
-app.use("/public/*", serveStatic({ root: "./" }));
+// ── Config ──────────────────────────────────────────────────────────────────
+
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY ?? "";
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY ?? "";
+const VAPID_SUBJECT = "mailto:admin@example.com"; // change to your email
+
+const HISTORY_FILE = "/data/history.json";
+const SUBS_FILE = "/data/subscriptions.json";
+
+// ── Persistence helpers ──────────────────────────────────────────────────────
+
+function loadJSON<T>(path: string, fallback: T): T {
+  try {
+    if (existsSync(path)) return JSON.parse(readFileSync(path, "utf-8"));
+  } catch {}
+  return fallback;
+}
+
+function saveJSON(path: string, data: unknown) {
+  try {
+    writeFileSync(path, JSON.stringify(data, null, 2));
+  } catch (e) {
+    console.error(`Failed to write ${path}:`, e);
+  }
+}
+
+// ── State ────────────────────────────────────────────────────────────────────
 
 let players: Record<string, { name: string; count: number }> = {};
-let dailyHistory: Record<string, Record<string, { name: string; count: number }>> = {};
+let dailyHistory: Record<string, Record<string, { name: string; count: number }>> =
+  loadJSON(HISTORY_FILE, {});
+let subscriptions: Record<string, PushSubscriptionJSON> =
+  loadJSON(SUBS_FILE, {});
 let currentDay = new Date().toISOString().split("T")[0];
 let gameActive = true;
 
+// ── Game logic ───────────────────────────────────────────────────────────────
+
 function updateGameStatus() {
   const now = new Date();
-  const hours = now.getUTCHours();
-  const minutes = now.getUTCMinutes();
-  const currentTime = hours * 60 + minutes;
-  const cutoffTime = 21 * 60;
-
-  gameActive = currentTime < cutoffTime;
+  const currentTime = now.getUTCHours() * 60 + now.getUTCMinutes();
+  gameActive = currentTime < 21 * 60;
 
   const newDay = new Date().toISOString().split("T")[0];
   if (newDay !== currentDay) {
     if (Object.keys(players).length > 0) {
       dailyHistory[currentDay] = { ...players };
+      saveJSON(HISTORY_FILE, dailyHistory);
     }
     currentDay = newDay;
     players = {};
@@ -30,70 +59,189 @@ function updateGameStatus() {
   }
 }
 
+function getRankings() {
+  return Object.entries(players)
+    .map(([id, p]) => ({ id, name: p.name, count: p.count }))
+    .sort((a, b) => b.count - a.count);
+}
+
+function sanitizeName(name: string): string {
+  return name
+    .trim()
+    .replace(/[^a-zA-Z0-9 '_-]/g, "")
+    .slice(0, 30);
+}
+
+// ── VAPID / Push helpers ─────────────────────────────────────────────────────
+
+function base64urlToUint8Array(base64url: string): Uint8Array {
+  const base64 = base64url.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), "=");
+  return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
+}
+
+function uint8ArrayToBase64url(arr: Uint8Array): string {
+  return btoa(String.fromCharCode(...arr))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=/g, "");
+}
+
+async function buildVapidAuthorization(audience: string): Promise<string> {
+  const header = uint8ArrayToBase64url(
+    new TextEncoder().encode(JSON.stringify({ typ: "JWT", alg: "ES256" }))
+  );
+  const now = Math.floor(Date.now() / 1000);
+  const payload = uint8ArrayToBase64url(
+    new TextEncoder().encode(
+      JSON.stringify({ aud: audience, exp: now + 3600, sub: VAPID_SUBJECT })
+    )
+  );
+  const signingInput = `${header}.${payload}`;
+  const keyData = base64urlToUint8Array(VAPID_PRIVATE_KEY);
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    keyData,
+    { name: "ECDSA", namedCurve: "P-256" },
+    false,
+    ["sign"]
+  );
+  const signature = await crypto.subtle.sign(
+    { name: "ECDSA", hash: "SHA-256" },
+    cryptoKey,
+    new TextEncoder().encode(signingInput)
+  );
+  const jwt = `${signingInput}.${uint8ArrayToBase64url(new Uint8Array(signature))}`;
+  return `vapid t=${jwt}, k=${VAPID_PUBLIC_KEY}`;
+}
+
+async function sendPushNotification(
+  subscription: PushSubscriptionJSON,
+  title: string,
+  body: string
+): Promise<boolean> {
+  try {
+    const endpoint = subscription.endpoint!;
+    const audience = new URL(endpoint).origin;
+    const authorization = await buildVapidAuthorization(audience);
+    const payload = new TextEncoder().encode(JSON.stringify({ title, body }));
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: authorization,
+        "Content-Type": "application/octet-stream",
+        "Content-Length": String(payload.length),
+        TTL: "60",
+      },
+      body: payload,
+    });
+    if (res.status === 410) return false; // subscription expired
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function notifyOvertaken(overtakenId: string) {
+  const sub = subscriptions[overtakenId];
+  if (!sub) return;
+  const ok = await sendPushNotification(
+    sub,
+    "Number Game",
+    `${players[overtakenId]?.name ?? "You"} has been overtaken! Fight back!`
+  );
+  if (!ok) {
+    // subscription is stale — remove it
+    delete subscriptions[overtakenId];
+    saveJSON(SUBS_FILE, subscriptions);
+  }
+}
+
+// ── Routes ───────────────────────────────────────────────────────────────────
+
+app.use("/public/*", serveStatic({ root: "./" }));
+
+// Service worker must be served from root scope
+app.get("/service-worker.js", serveStatic({ path: "./public/service-worker.js" }));
+
 app.post("/api/player/login", async (c) => {
   const { name } = await c.req.json();
   if (!name || name.trim().length === 0) {
     return c.json({ error: "Name required" }, 400);
   }
 
-  const playerId = name.toLowerCase().replace(/\s+/g, "-");
-  if (!players[playerId]) {
-    players[playerId] = { name, count: 0 };
+  const sanitized = sanitizeName(name);
+  if (!sanitized) {
+    return c.json({ error: "Name must contain letters or numbers" }, 400);
   }
 
-  return c.json({ playerId, player: players[playerId] });
+  const playerId = sanitized.toLowerCase().replace(/\s+/g, "-");
+  if (!players[playerId]) {
+    players[playerId] = { name: sanitized, count: 0 };
+  }
+
+  return c.json({ playerId, player: players[playerId], vapidPublicKey: VAPID_PUBLIC_KEY });
+});
+
+app.post("/api/subscribe", async (c) => {
+  const { playerId, subscription } = await c.req.json();
+  if (!playerId || !subscription?.endpoint) {
+    return c.json({ error: "Invalid subscription" }, 400);
+  }
+  subscriptions[playerId] = subscription;
+  saveJSON(SUBS_FILE, subscriptions);
+  return c.json({ ok: true });
 });
 
 app.post("/api/increment", async (c) => {
   updateGameStatus();
-
-  if (!gameActive) {
-    return c.json({ error: "Game is closed for the day" }, 403);
-  }
+  if (!gameActive) return c.json({ error: "Game is closed for the day" }, 403);
 
   const { playerId } = await c.req.json();
-  if (!players[playerId]) {
-    return c.json({ error: "Player not found" }, 404);
-  }
+  if (!players[playerId]) return c.json({ error: "Player not found" }, 404);
+
+  // Capture rankings before increment to detect overtakes
+  const rankingsBefore = getRankings();
+  const positionBefore = rankingsBefore.findIndex((p) => p.id === playerId);
 
   players[playerId].count++;
+
+  const rankingsAfter = getRankings();
+  const positionAfter = rankingsAfter.findIndex((p) => p.id === playerId);
+
+  // Notify anyone who has just been overtaken
+  if (positionAfter < positionBefore) {
+    // The incrementing player moved up — find who they passed
+    for (let i = positionAfter; i < positionBefore; i++) {
+      const overtaken = rankingsAfter[i + 1];
+      if (overtaken && overtaken.id !== playerId) {
+        notifyOvertaken(overtaken.id);
+      }
+    }
+  }
 
   return c.json({
     totalCount: Object.values(players).reduce((sum, p) => sum + p.count, 0),
     playerCount: players[playerId].count,
-    rankings: getRankings(),
+    rankings: rankingsAfter,
     gameActive,
   });
 });
 
 app.get("/api/state", (c) => {
   updateGameStatus();
-
-  const totalCount = Object.values(players).reduce((sum, p) => sum + p.count, 0);
-  const rankings = getRankings();
-
   return c.json({
-    totalCount,
-    rankings,
+    totalCount: Object.values(players).reduce((sum, p) => sum + p.count, 0),
+    rankings: getRankings(),
     gameActive,
     currentDay,
-    players: Object.entries(players).map(([id, p]) => ({
-      id,
-      name: p.name,
-      count: p.count,
-    })),
+    players: Object.entries(players).map(([id, p]) => ({ id, name: p.name, count: p.count })),
   });
 });
 
-app.get("/api/history", (c) => {
-  return c.json(dailyHistory);
-});
+app.get("/api/history", (c) => c.json(dailyHistory));
 
-function getRankings() {
-  return Object.entries(players)
-    .map(([id, p]) => ({ id, name: p.name, count: p.count }))
-    .sort((a, b) => b.count - a.count);
-}
+// ── Frontend ─────────────────────────────────────────────────────────────────
 
 const html = `<!DOCTYPE html>
 <html lang="en">
@@ -153,7 +301,7 @@ const html = `<!DOCTYPE html>
         <button class="audio-btn" id="audio-btn" onclick="cycleAudio()" title="Change music">🎵</button>
       </div>
       <div class="rankings" id="rankings"></div>
-      <div class="button group"><button class="nav-btn" onclick="showHistory()">History</button></div>
+      <div class="button-group"><button class="nav-btn" onclick="showHistory()">History</button></div>
     </div>
     <div class="game-closed" id="game-closed" style="display: none;">
       <h2>🏆 Today's Winners</h2>
@@ -164,6 +312,7 @@ const html = `<!DOCTYPE html>
   </div>
   <script>
     let playerId = null;
+    let vapidPublicKey = null;
 
     const audioTracks = [
       null,
@@ -173,7 +322,7 @@ const html = `<!DOCTYPE html>
       '/public/audio/track004.mp3',
       '/public/audio/track005.mp3',
     ];
-    const audioLabels = ['🔇', '🎵', '🎶', '🎸'];
+    const audioLabels = ['🔇', '🎵', '🎵', '🎵', '🎵', '🎵'];
     let currentTrackIndex = 0;
 
     function cycleAudio() {
@@ -191,6 +340,34 @@ const html = `<!DOCTYPE html>
       }
     }
 
+    function urlBase64ToUint8Array(base64String) {
+      const padding = '='.repeat((4 - base64String.length % 4) % 4);
+      const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+      const rawData = atob(base64);
+      return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+    }
+
+    async function registerPush(key) {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+      try {
+        const reg = await navigator.serviceWorker.register('/service-worker.js');
+        await navigator.serviceWorker.ready;
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') return;
+        const sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(key),
+        });
+        await fetch('/api/subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ playerId, subscription: sub.toJSON() }),
+        });
+      } catch (e) {
+        console.warn('Push registration failed:', e);
+      }
+    }
+
     async function login() {
       const name = document.getElementById('player-name').value.trim();
       if (!name) return;
@@ -200,13 +377,20 @@ const html = `<!DOCTYPE html>
         body: JSON.stringify({ name })
       });
       const data = await res.json();
+      if (data.error) {
+        alert(data.error);
+        return;
+      }
       playerId = data.playerId;
+      vapidPublicKey = data.vapidPublicKey;
       localStorage.setItem('playerName', name);
       document.getElementById('login-screen').style.display = 'none';
       document.getElementById('game-screen').classList.add('active');
       updateState();
       setInterval(updateState, 1000);
+      registerPush(vapidPublicKey);
     }
+
     async function increment() {
       const res = await fetch('/api/increment', {
         method: 'POST',
@@ -218,14 +402,16 @@ const html = `<!DOCTYPE html>
         updateUI(data);
       }
     }
+
     async function updateState() {
       const res = await fetch('/api/state');
       const data = await res.json();
       updateUI(data);
     }
+
     function updateUI(data) {
       document.getElementById('counter').textContent = data.totalCount;
-      const player = data.players.find(p => p.id === playerId);
+      const player = data.players?.find(p => p.id === playerId);
       if (player) {
         document.getElementById('player-count').textContent = \`Your count: \${player.count}\`;
       }
@@ -245,6 +431,7 @@ const html = `<!DOCTYPE html>
         ).join('');
       }
     }
+
     async function showHistory() {
       const res = await fetch('/api/history');
       const history = await res.json();
@@ -255,13 +442,17 @@ const html = `<!DOCTYPE html>
       if (Object.keys(history).length === 0) {
         historyScreen.innerHTML = '<button class="nav-btn" onclick="location.reload()" style="margin-bottom: 20px;">Back</button><div style="text-align: center; color: #FF00FF; font-size: 1.2em;">No history yet</div>';
       } else {
-        historyScreen.innerHTML = '<button class="nav-btn" onclick="location.reload()" style="margin-bottom: 20px;">Back</button>' + Object.entries(history).reverse().map(([day, players]) =>
-          '<div class="history-day"><h3>📅 ' + day + '</h3>' + Object.entries(players).sort((a, b) => b[1].count - a[1].count).map(([id, player], idx) =>
-            '<div class="ranking-item"><span class="ranking-position">#' + (idx + 1) + '</span><span>' + player.name + '</span><span>' + player.count + '</span></div>'
-          ).join('') + '</div>'
-        ).join('');
+        historyScreen.innerHTML = '<button class="nav-btn" onclick="location.reload()" style="margin-bottom: 20px;">Back</button>' +
+          Object.entries(history).reverse().map(([day, players]) =>
+            '<div class="history-day"><h3>📅 ' + day + '</h3>' +
+            Object.entries(players).sort((a, b) => b[1].count - a[1].count).map(([id, player], idx) =>
+              '<div class="ranking-item"><span class="ranking-position">#' + (idx + 1) + '</span><span>' +
+              player.name + '</span><span>' + player.count + '</span></div>'
+            ).join('') + '</div>'
+          ).join('');
       }
     }
+
     const saved = localStorage.getItem('playerName');
     if (saved) {
       document.getElementById('player-name').value = saved;
