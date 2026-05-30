@@ -144,15 +144,20 @@ async function sendPushNotification(
 }
 
 async function notifyOvertaken(overtakenId: string) {
+  console.log(`notifyOvertaken called for: ${overtakenId}`);
   const sub = subscriptions[overtakenId];
-  if (!sub) return;
+  if (!sub) {
+    console.log(`No subscription found for: ${overtakenId}`);
+    return;
+  }
+  console.log(`Sending push to: ${overtakenId}`);
   const ok = await sendPushNotification(
     sub,
     "Number Game",
     `${players[overtakenId]?.name ?? "You"} has been overtaken! Fight back!`
   );
+  console.log(`Push result for ${overtakenId}: ${ok}`);
   if (!ok) {
-    // subscription is stale — remove it
     delete subscriptions[overtakenId];
     saveJSON(SUBS_FILE, subscriptions);
   }
@@ -211,10 +216,11 @@ app.post("/api/increment", async (c) => {
   const positionAfter = rankingsAfter.findIndex((p) => p.id === playerId);
 
   // Notify anyone who has just been overtaken
+  console.log(`Position before: ${positionBefore}, after: ${positionAfter}`);
   if (positionAfter < positionBefore) {
-    // The incrementing player moved up — find who they passed
     for (let i = positionAfter; i < positionBefore; i++) {
       const overtaken = rankingsAfter[i + 1];
+      console.log(`Checking overtake at position ${i + 1}:`, overtaken?.id);
       if (overtaken && overtaken.id !== playerId) {
         notifyOvertaken(overtaken.id);
       }
