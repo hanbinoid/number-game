@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
-import { readFileSync, writeFileSync, existsSync } from "fs";
 
 const app = new Hono();
 
@@ -10,37 +9,59 @@ const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY ?? "";
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY ?? "";
 const VAPID_SUBJECT = "mailto:admin@example.com"; // change to your email
 
-const HISTORY_FILE = "/data/history.json";
-const TOTALS_FILE = "/data/totals.json";
-const SUBS_FILE = "/data/subscriptions.json";
+const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL ?? "";
+const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN ?? "";
 
-// ── Persistence helpers ──────────────────────────────────────────────────────
+// ── Redis helpers ────────────────────────────────────────────────────────────
 
-function loadJSON<T>(path: string, fallback: T): T {
+async function redisGet<T>(key: string, fallback: T): Promise<T> {
   try {
-    if (existsSync(path)) return JSON.parse(readFileSync(path, "utf-8"));
-  } catch {}
-  return fallback;
+    const res = await fetch(`${REDIS_URL}/get/${key}`, {
+      headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
+    });
+    const data = await res.json() as { result: string | null };
+    if (data.result === null) return fallback;
+    return JSON.parse(data.result) as T;
+  } catch (e) {
+    console.error(`Redis GET ${key} failed:`, e);
+    return fallback;
+  }
 }
 
-function saveJSON(path: string, data: unknown) {
+async function redisSet(key: string, value: unknown): Promise<void> {
   try {
-    writeFileSync(path, JSON.stringify(data, null, 2));
+    await fetch(`${REDIS_URL}/set/${key}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${REDIS_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ value: JSON.stringify(value) }),
+    });
   } catch (e) {
-    console.error(`Failed to write ${path}:`, e);
+    console.error(`Redis SET ${key} failed:`, e);
   }
 }
 
 // ── State ────────────────────────────────────────────────────────────────────
 
 let players: Record<string, { name: string; count: number }> = {};
-let allTimeBase: number = loadJSON(TOTALS_FILE, 0);
-let dailyHistory: Record<string, Record<string, { name: string; count: number }>> =
-  loadJSON(HISTORY_FILE, {});
-let subscriptions: Record<string, PushSubscriptionJSON> =
-  loadJSON(SUBS_FILE, {});
+let dailyHistory: Record<string, Record<string, { name: string; count: number }>> = {};
+let subscriptions: Record<string, PushSubscriptionJSON> = {};
+let allTimeBase: number = 0;
 let currentDay = new Date().toISOString().split("T")[0];
 let gameActive = true;
+let stateLoaded = false;
+
+async function ensureStateLoaded() {
+  if (stateLoaded) return;
+  [dailyHistory, subscriptions, allTimeBase] = await Promise.all([
+    redisGet("history", {}),
+    redisGet("subscriptions", {}),
+    redisGet("allTimeBase", 0),
+  ]);
+  stateLoaded = true;
+}
 
 // ── Game logic ───────────────────────────────────────────────────────────────
 
@@ -53,11 +74,10 @@ function updateGameStatus() {
   if (newDay !== currentDay) {
     if (Object.keys(players).length > 0) {
       dailyHistory[currentDay] = { ...players };
-      saveJSON(HISTORY_FILE, dailyHistory);
-      // Add completed day to all-time total
+      redisSet("history", dailyHistory);
       const dayTotal = Object.values(players).reduce((sum, p) => sum + p.count, 0);
       allTimeBase += dayTotal;
-      saveJSON(TOTALS_FILE, allTimeBase);
+      redisSet("allTimeBase", allTimeBase);
     }
     currentDay = newDay;
     players = {};
@@ -144,7 +164,8 @@ async function sendPushNotification(
     console.log(`Push response: ${res.status} ${res.statusText}`);
     if (res.status === 410) return false;
     return true;
-  } catch {
+  } catch (e) {
+    console.error("Push error:", e);
     return false;
   }
 }
@@ -165,7 +186,7 @@ async function notifyOvertaken(overtakenId: string) {
   console.log(`Push result for ${overtakenId}: ${ok}`);
   if (!ok) {
     delete subscriptions[overtakenId];
-    saveJSON(SUBS_FILE, subscriptions);
+    redisSet("subscriptions", subscriptions);
   }
 }
 
@@ -173,10 +194,10 @@ async function notifyOvertaken(overtakenId: string) {
 
 app.use("/public/*", serveStatic({ root: "./" }));
 
-// Service worker must be served from root scope
 app.get("/service-worker.js", serveStatic({ path: "./public/service-worker.js" }));
 
 app.post("/api/player/login", async (c) => {
+  await ensureStateLoaded();
   const { name } = await c.req.json();
   if (!name || name.trim().length === 0) {
     return c.json({ error: "Name required" }, 400);
@@ -201,18 +222,18 @@ app.post("/api/subscribe", async (c) => {
     return c.json({ error: "Invalid subscription" }, 400);
   }
   subscriptions[playerId] = subscription;
-  saveJSON(SUBS_FILE, subscriptions);
+  redisSet("subscriptions", subscriptions);
   return c.json({ ok: true });
 });
 
 app.post("/api/increment", async (c) => {
+  await ensureStateLoaded();
   updateGameStatus();
   if (!gameActive) return c.json({ error: "Game is closed for the day" }, 403);
 
   const { playerId } = await c.req.json();
   if (!players[playerId]) return c.json({ error: "Player not found" }, 404);
 
-  // Capture rankings before increment to detect overtakes
   const rankingsBefore = getRankings();
   const positionBefore = rankingsBefore.findIndex((p) => p.id === playerId);
 
@@ -221,7 +242,6 @@ app.post("/api/increment", async (c) => {
   const rankingsAfter = getRankings();
   const positionAfter = rankingsAfter.findIndex((p) => p.id === playerId);
 
-  // Notify anyone who has just been overtaken
   console.log(`Position before: ${positionBefore}, after: ${positionAfter}`);
   if (positionAfter < positionBefore) {
     for (let i = positionAfter; i < positionBefore; i++) {
@@ -241,7 +261,8 @@ app.post("/api/increment", async (c) => {
   });
 });
 
-app.get("/api/state", (c) => {
+app.get("/api/state", async (c) => {
+  await ensureStateLoaded();
   updateGameStatus();
   const todayTotal = Object.values(players).reduce((sum, p) => sum + p.count, 0);
   return c.json({
@@ -254,7 +275,10 @@ app.get("/api/state", (c) => {
   });
 });
 
-app.get("/api/history", (c) => c.json(dailyHistory));
+app.get("/api/history", async (c) => {
+  await ensureStateLoaded();
+  return c.json(dailyHistory);
+});
 
 // ── Frontend ─────────────────────────────────────────────────────────────────
 
@@ -428,7 +452,7 @@ const html = `<!DOCTYPE html>
 
     function updateUI(data) {
       document.getElementById('counter').textContent = data.totalCount;
-      document.getElementById('alltime-total').textContent = `All-time total: ${data.allTimeTotal}`;
+      document.getElementById('alltime-total').textContent = \`All-time total: \${data.allTimeTotal}\`;
       const player = data.players?.find(p => p.id === playerId);
       if (player) {
         document.getElementById('player-count').textContent = \`Your count: \${player.count}\`;
