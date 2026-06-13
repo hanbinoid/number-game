@@ -11,6 +11,7 @@ const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY ?? "";
 const VAPID_SUBJECT = "mailto:admin@example.com"; // change to your email
 
 const HISTORY_FILE = "/data/history.json";
+const TOTALS_FILE = "/data/totals.json";
 const SUBS_FILE = "/data/subscriptions.json";
 
 // ── Persistence helpers ──────────────────────────────────────────────────────
@@ -33,6 +34,7 @@ function saveJSON(path: string, data: unknown) {
 // ── State ────────────────────────────────────────────────────────────────────
 
 let players: Record<string, { name: string; count: number }> = {};
+let allTimeBase: number = loadJSON(TOTALS_FILE, 0);
 let dailyHistory: Record<string, Record<string, { name: string; count: number }>> =
   loadJSON(HISTORY_FILE, {});
 let subscriptions: Record<string, PushSubscriptionJSON> =
@@ -52,6 +54,10 @@ function updateGameStatus() {
     if (Object.keys(players).length > 0) {
       dailyHistory[currentDay] = { ...players };
       saveJSON(HISTORY_FILE, dailyHistory);
+      // Add completed day to all-time total
+      const dayTotal = Object.values(players).reduce((sum, p) => sum + p.count, 0);
+      allTimeBase += dayTotal;
+      saveJSON(TOTALS_FILE, allTimeBase);
     }
     currentDay = newDay;
     players = {};
@@ -237,8 +243,10 @@ app.post("/api/increment", async (c) => {
 
 app.get("/api/state", (c) => {
   updateGameStatus();
+  const todayTotal = Object.values(players).reduce((sum, p) => sum + p.count, 0);
   return c.json({
-    totalCount: Object.values(players).reduce((sum, p) => sum + p.count, 0),
+    totalCount: todayTotal,
+    allTimeTotal: allTimeBase + todayTotal,
     rankings: getRankings(),
     gameActive,
     currentDay,
@@ -269,6 +277,7 @@ const html = `<!DOCTYPE html>
     .game-screen { display: none; text-align: center; width: 100%; max-width: 1200px; }
     .game-screen.active { display: flex; flex-direction: column; align-items: center; gap: 20px; }
     .counter { font-size: 4em; color: #00FF00; font-weight: bold; text-shadow: 0 0 20px #00FF00; }
+    .alltime-total { font-size: 1.2em; color: #FFD700; letter-spacing: 1px; margin-top: -10px; }
     .player-count { font-size: 1.5em; color: #FF00FF; }
     .button-group { display: flex; gap: 20px; justify-content: center; flex-wrap: wrap; }
     .increment-btn { padding: 20px 40px; font-size: 1.5em; background: #00FF00; color: #000; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; transition: all 0.3s; min-width: 200px; }
@@ -302,6 +311,7 @@ const html = `<!DOCTYPE html>
     </div>
     <div class="game-screen" id="game-screen">
       <div class="counter" id="counter">0</div>
+      <div class="alltime-total" id="alltime-total">All-time: 0</div>
       <div class="player-count" id="player-count">Your count: 0</div>
       <div class="button-group">
         <button class="increment-btn" id="increment-btn" onclick="increment()">+1</button>
@@ -418,6 +428,7 @@ const html = `<!DOCTYPE html>
 
     function updateUI(data) {
       document.getElementById('counter').textContent = data.totalCount;
+      document.getElementById('alltime-total').textContent = `All-time total: ${data.allTimeTotal}`;
       const player = data.players?.find(p => p.id === playerId);
       if (player) {
         document.getElementById('player-count').textContent = \`Your count: \${player.count}\`;
