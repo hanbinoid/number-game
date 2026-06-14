@@ -295,7 +295,7 @@ const html = `<!DOCTYPE html>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #000; color: #fff; overflow: hidden; touch-action: manipulation;}
-    #bg-gif { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; opacity: 0.3; object-fit: cover; pointer-events: none; }
+    #bg-gif { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; opacity: 0.5; object-fit: cover; pointer-events: none; }
     .container { position: relative; z-index: 1; width: 100%; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; background: rgba(0, 0, 0, 0.6); overflow-y: auto; }
     .login-screen { text-align: center; background: rgba(0, 0, 0, 0.8); padding: 40px; border-radius: 10px; border: 2px solid #00FF00; }
     .login-screen h1 { color: #00FF00; margin-bottom: 20px; font-size: 2.5em; }
