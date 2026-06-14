@@ -68,7 +68,7 @@ async function ensureStateLoaded() {
 function updateGameStatus() {
   const now = new Date();
   const currentTime = now.getUTCHours() * 60 + now.getUTCMinutes();
-  gameActive = currentTime < 21 * 60;
+  gameActive = currentTime < 22 * 60;
 
   const newDay = new Date().toISOString().split("T")[0];
   if (newDay !== currentDay) {
@@ -254,10 +254,11 @@ app.post("/api/increment", async (c) => {
   }
 
   return c.json({
-    totalCount: Object.values(players).reduce((sum, p) => sum + p.count, 0),
-    playerCount: players[playerId].count,
-    rankings: rankingsAfter,
-    gameActive,
+  totalCount: Object.values(players).reduce((sum, p) => sum + p.count, 0),
+  allTimeTotal: allTimeBase + Object.values(players).reduce((sum, p) => sum + p.count, 0),
+  playerCount: players[playerId].count,
+  rankings: rankingsAfter,
+  gameActive,
   });
 });
 
