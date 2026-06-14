@@ -55,10 +55,11 @@ let stateLoaded = false;
 
 async function ensureStateLoaded() {
   if (stateLoaded) return;
-  [dailyHistory, subscriptions, allTimeBase] = await Promise.all([
+  [dailyHistory, subscriptions, allTimeBase, players] = await Promise.all([
     redisGet("history", {}),
     redisGet("subscriptions", {}),
     redisGet("allTimeBase", 0),
+    redisGet("players", {}),
   ]);
   stateLoaded = true;
 }
@@ -82,6 +83,7 @@ function updateGameStatus() {
     currentDay = newDay;
     players = {};
     gameActive = true;
+    redisSet("players", players);
   }
 }
 
@@ -238,6 +240,7 @@ app.post("/api/increment", async (c) => {
   const positionBefore = rankingsBefore.findIndex((p) => p.id === playerId);
 
   players[playerId].count++;
+  redisSet("players", players);
 
   const rankingsAfter = getRankings();
   const positionAfter = rankingsAfter.findIndex((p) => p.id === playerId);
