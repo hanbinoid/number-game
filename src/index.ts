@@ -421,7 +421,7 @@ const html = `<!DOCTYPE html>
     async function login() {
   const name = document.getElementById('player-name').value.trim();
   if (!name) return;
-  if (!/^\d{4,}$/.test(name)) {
+  if (name.length < 4 || isNaN(Number(name))) {
     alert('Please enter a number with at least 4 digits.');
     return;
   }
