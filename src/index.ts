@@ -96,8 +96,8 @@ function getRankings() {
 function sanitizeName(name: string): string {
   return name
     .trim()
-    .replace(/[^a-zA-Z0-9 '_-]/g, "")
-    .slice(0, 30);
+    .replace(/[^0-9]/g, "")
+    .slice(0, 20);
 }
 
 // ── VAPID / Push helpers ─────────────────────────────────────────────────────
@@ -207,9 +207,12 @@ app.post("/api/player/login", async (c) => {
 
   const sanitized = sanitizeName(name);
   if (!sanitized) {
-    return c.json({ error: "Name must contain letters or numbers" }, 400);
+    return c.json({ error: "Invalid ID Number" }, 400);
   }
-
+if (sanitized.length < 4) {
+  return c.json({ error: "ID must be at least 4 digits" }, 400);
+}
+  
   const playerId = sanitized.toLowerCase().replace(/\s+/g, "-");
   if (!players[playerId]) {
     players[playerId] = { name: sanitized, count: 0 };
@@ -333,9 +336,11 @@ const html = `<!DOCTYPE html>
   <audio id="audio-player" loop></audio>
   <div class="container">
     <div class="login-screen" id="login-screen">
-      <h1>🎮 Number Game</h1>
-      <input type="text" id="player-name" placeholder="Enter your name" />
-      <button onclick="login()">Play</button>
+     <h1>🎮 Number Game</h1>
+<p style="color: #00FF00; font-size: 1em; margin-bottom: 20px;">Enter your ID number</p>
+      <input type="number" id="player-name" placeholder="e.g. 1234" inputmode="numeric" />
+<p style="color: #FF00FF; font-size: 0.85em; margin-top: -10px; margin-bottom: 20px;">Choose a number you will remember. 4+ digits</p>
+<button onclick="login()">Play</button>
     </div>
     <div class="game-screen" id="game-screen">
       <div class="counter" id="counter">0</div>
@@ -414,8 +419,12 @@ const html = `<!DOCTYPE html>
     }
 
     async function login() {
-      const name = document.getElementById('player-name').value.trim();
-      if (!name) return;
+  const name = document.getElementById('player-name').value.trim();
+  if (!name) return;
+  if (!/^\d{4,}$/.test(name)) {
+    alert('Please enter a number with at least 4 digits.');
+    return;
+  }
       const res = await fetch('/api/player/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
