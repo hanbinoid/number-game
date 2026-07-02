@@ -481,7 +481,7 @@ const html = `<!DOCTYPE html>
         ).join('');
       } else {
         const rankingsEl = document.getElementById('rankings');
-        rankingsEl.innerHTML = '<h2>Live Rankings</h2>' + data.rankings.map((p, i) =>
+        rankingsEl.innerHTML = data.rankings.map((p, i) =>
           \`<div class="ranking-item"><span class="ranking-position">#\${i + 1}</span><span>\${p.name}</span><span>\${p.count}</span></div>\`
         ).join('');
       }
