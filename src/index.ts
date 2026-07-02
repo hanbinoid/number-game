@@ -318,7 +318,7 @@ const html = `<!DOCTYPE html>
     .nav-btn:hover { background: #00FF00; color: #000; }
     .audio-btn { padding: 10px 16px; font-size: 1.1em; background: rgba(0, 0, 0, 0.7); color: #00FF00; border: 2px solid #00FF00; border-radius: 5px; cursor: pointer; font-weight: bold; transition: all 0.3s; min-width: 48px; }
     .audio-btn:hover { background: #00FF00; color: #000; }
-    .rankings { background: rgba(0, 0, 0, 0.8); padding: 20px; border-radius: 10px; border: 2px solid #FF00FF; width: 100%; max-width: 600px; max-height: 300px; overflow-y: auto; }
+    .rankings { background: rgba(0, 0, 0, 0.8); padding: 20px; border-radius: 10px; border: 2px solid #FF00FF; width: 100%; max-width: 600px; max-height: 100px; overflow-y: auto; }
     .rankings h2 { color: #00FF00; margin-bottom: 15px; }
     .ranking-item { display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #FF00FF; color: #fff; }
     .ranking-item:last-child { border-bottom: none; }
