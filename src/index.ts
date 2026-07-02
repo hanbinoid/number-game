@@ -338,7 +338,7 @@ const html = `<!DOCTYPE html>
     <div class="login-screen" id="login-screen">
      <h1>🎮 Number Game</h1>
 <p style="color: #00FF00; font-size: 1em; margin-bottom: 20px;">Enter your ID number</p>
-      <input type="number" id="player-name" placeholder="e.g. 1234" inputmode="numeric" />
+      <input type="text" id="player-name" placeholder="e.g. 1234" inputmode="numeric" />
 <p style="color: #FF00FF; font-size: 0.85em; margin-top: -10px; margin-bottom: 20px;">Choose a number you will remember. 4+ digits</p>
 <button onclick="login()">Play</button>
     </div>
