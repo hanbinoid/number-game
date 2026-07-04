@@ -61,6 +61,7 @@ async function ensureStateLoaded() {
     redisGet("allTimeBase", 0),
     redisGet("players", {}),
   ]);
+  ensureBotsExist();
   stateLoaded = true;
 }
 
@@ -82,9 +83,12 @@ function updateGameStatus() {
     }
     currentDay = newDay;
     players = {};
+    ensureBotsExist();
     gameActive = true;
     redisSet("players", players);
   }
+
+  if (gameActive) tickBots();
 }
 
 function getRankings() {
@@ -98,6 +102,41 @@ function sanitizeName(name: string): string {
     .trim()
     .replace(/[^0-9]/g, "")
     .slice(0, 20);
+}
+
+// ── Bot players ──────────────────────────────────────────────────────────────
+// Fake "players" that quietly rack up points on their own, so the leaderboard
+// never feels empty/static. Each one just needs a 9-digit id/name and a
+// tickChance (the odds it increments by 1 on any given check). Add more bots
+// to this array later if you want a bigger "crowd".
+
+interface BotConfig {
+  id: string;
+  tickChance: number;
+}
+
+const BOTS: BotConfig[] = [
+  { id: "482917364", tickChance: 0.12 },
+];
+
+function ensureBotsExist() {
+  for (const bot of BOTS) {
+    if (!players[bot.id]) {
+      players[bot.id] = { name: bot.id, count: 0 };
+    }
+  }
+}
+
+function tickBots() {
+  let changed = false;
+  for (const bot of BOTS) {
+    if (!players[bot.id]) continue;
+    if (Math.random() < bot.tickChance) {
+      players[bot.id].count++;
+      changed = true;
+    }
+  }
+  if (changed) redisSet("players", players);
 }
 
 // ── VAPID / Push helpers ─────────────────────────────────────────────────────
@@ -212,8 +251,11 @@ app.post("/api/player/login", async (c) => {
 if (sanitized.length < 4) {
   return c.json({ error: "ID must be at least 4 digits" }, 400);
 }
-  
+
   const playerId = sanitized.toLowerCase().replace(/\s+/g, "-");
+  if (BOTS.some((bot) => bot.id === playerId)) {
+    return c.json({ error: "That ID is taken, please choose another" }, 400);
+  }
   if (!players[playerId]) {
     players[playerId] = { name: sanitized, count: 0 };
   }
