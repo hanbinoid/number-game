@@ -55,12 +55,37 @@ let stateLoaded = false;
 
 async function ensureStateLoaded() {
   if (stateLoaded) return;
-  [dailyHistory, subscriptions, allTimeBase, players] = await Promise.all([
-    redisGet("history", {}),
-    redisGet("subscriptions", {}),
+  const [loadedHistory, loadedSubscriptions, loadedAllTimeBase, loadedPlayers] = await Promise.all([
+    redisGet("history", {} as Record<string, Record<string, { name: string; count: number }>>),
+    redisGet("subscriptions", {} as Record<string, PushSubscriptionJSON>),
     redisGet("allTimeBase", 0),
-    redisGet("players", {}),
+    redisGet("players", {} as Record<string, { name: string; count: number }>),
   ]);
+
+  dailyHistory = loadedHistory && typeof loadedHistory === "object" ? loadedHistory : {};
+  subscriptions = loadedSubscriptions && typeof loadedSubscriptions === "object" ? loadedSubscriptions : {};
+
+  const numericAllTimeBase = Number(loadedAllTimeBase);
+  if (Number.isFinite(numericAllTimeBase)) {
+    allTimeBase = numericAllTimeBase;
+  } else {
+    console.warn(`Corrupt allTimeBase in Redis (was ${JSON.stringify(loadedAllTimeBase)}), resetting to 0`);
+    allTimeBase = 0;
+    redisSet("allTimeBase", 0);
+  }
+
+  players = {};
+  if (loadedPlayers && typeof loadedPlayers === "object") {
+    for (const [id, p] of Object.entries(loadedPlayers)) {
+      const count = Number((p as any)?.count);
+      if (p && typeof (p as any).name === "string" && Number.isFinite(count)) {
+        players[id] = { name: (p as any).name, count };
+      } else {
+        console.warn(`Dropping corrupt player entry "${id}":`, p);
+      }
+    }
+  }
+
   ensureBotsExist();
   stateLoaded = true;
 }
@@ -77,7 +102,10 @@ function updateGameStatus() {
     if (Object.keys(players).length > 0) {
       dailyHistory[currentDay] = { ...players };
       redisSet("history", dailyHistory);
-      const dayTotal = Object.values(players).reduce((sum, p) => sum + p.count, 0);
+      const dayTotal = Object.values(players).reduce(
+        (sum, p) => sum + (Number.isFinite(p.count) ? p.count : 0),
+        0
+      );
       allTimeBase += dayTotal;
       redisSet("allTimeBase", allTimeBase);
     }
@@ -302,8 +330,8 @@ app.post("/api/increment", async (c) => {
   }
 
   return c.json({
-  totalCount: Object.values(players).reduce((sum, p) => sum + p.count, 0),
-  allTimeTotal: allTimeBase + Object.values(players).reduce((sum, p) => sum + p.count, 0),
+  totalCount: Object.values(players).reduce((sum, p) => sum + (Number.isFinite(p.count) ? p.count : 0), 0),
+  allTimeTotal: allTimeBase + Object.values(players).reduce((sum, p) => sum + (Number.isFinite(p.count) ? p.count : 0), 0),
   playerCount: players[playerId].count,
   rankings: rankingsAfter,
   gameActive,
@@ -313,7 +341,7 @@ app.post("/api/increment", async (c) => {
 app.get("/api/state", async (c) => {
   await ensureStateLoaded();
   updateGameStatus();
-  const todayTotal = Object.values(players).reduce((sum, p) => sum + p.count, 0);
+  const todayTotal = Object.values(players).reduce((sum, p) => sum + (Number.isFinite(p.count) ? p.count : 0), 0);
   return c.json({
     totalCount: todayTotal,
     allTimeTotal: allTimeBase + todayTotal,
