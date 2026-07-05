@@ -144,7 +144,11 @@ interface BotConfig {
 }
 
 const BOTS: BotConfig[] = [
-  { id: "482917364", tickChance: 0.12 },
+  { id: "482917364", tickChance: 0.42 },
+  { id: "888888", tickChance: 0.32 },
+  { id: "123457", tickChance: 0.22 },
+  { id: "050706", tickChance: 0.12 },
+  { id: "7777777", tickChance: 0.02 },
 ];
 
 function ensureBotsExist() {
